@@ -1,45 +1,61 @@
 ---
-# yaml-language-server: $schema=https://schema.blue-build.org/recipe-v1.json
-# image will be published to ghcr.io/<user>/<name>
-name: Nixel linux 
-# description will be included in the image's metadata
-description: This is my personal OS image.
+name: nixel-fedora
+description: Ultra-lightweight macOS-themed atomic distro on Fedora XFCE
+base-image: ghcr.io/ublue-os/vauxite-main
+image-version: 41
+blue-build-tag: latest-installer
 
-# the base image to build on top of (FROM) and the version tag to use
-base-image: ghcr.io/ublue-os/silverblue-main
-image-version: latest # You can pin to a specific version of Fedora as well
-
-# module configuration, executed in order
-# you can include multiple instances of the same module
 modules:
+  # 1. Install macOS dock, launcher, theming engines, and modern shell
+  - type: rpm-ostree
+    install:
+      # macOS UI components
+      - plank                 # Ultra-lightweight macOS-style dock
+      - rofi                  # Spotlight-like cmd/super search runner
+      - xfce4-appmenu-plugin  # Global macOS top bar menu plugin
+      - xfce4-whiskermenu-plugin
+      # Terminal & aesthetics
+      - alacritty             # Low-latency, lightweight GPU-accelerated terminal
+      - fastfetch
+      - zsh
+      - picom                 # Lightweight compositor (for smooth window shadows/transparency)
+      - gtk-murrine-engine    # Required for GTK theme rendering
+
+  # 2. Bake in default skel configs (desktop layout, top bar, dock)
   - type: files
     files:
-      - source: system
-        destination: / # copies files/system/* (* means everything inside it) into your image's root folder /
+      - usr: /usr
 
-  - type: dnf
-    repos:
-      copr:
-        - atim/starship
-    install:
-      packages:
-        - micro
-        - starship
-    remove:
-      packages:
-        # example: removing firefox (in favor of the flatpak)
-        # "firefox" is the main package, "firefox-langpacks" is a dependency
-        - firefox
-        - firefox-langpacks # also remove firefox dependency (not required for all packages, this is a special case)
+  # 3. Pull WhiteSur GTK, icons, and Apple San Francisco fonts
+  - type: script
+    snippets:
+      - |
+        #!/usr/bin/env bash
+        set -oue pipefail
 
+        # Download WhiteSur macOS GTK Theme
+        git clone --depth=1 https://github.com/vinceliuice/WhiteSur-gtk-theme.git /tmp/whitesur-gtk
+        /tmp/whitesur-gtk/install.sh -d /usr/share/themes -t all -s round -c dark
+        rm -rf /tmp/whitesur-gtk
+
+        # Download WhiteSur macOS Icon Theme
+        git clone --depth=1 https://github.com/vinceliuice/WhiteSur-icon-theme.git /tmp/whitesur-icon
+        /tmp/whitesur-icon/install.sh -d /usr/share/icons -a
+        rm -rf /tmp/whitesur-icon
+
+        # Download Apple SF Pro Fonts
+        mkdir -p /usr/share/fonts/apple-fonts
+        curl -sL https://github.com/sahibjotsaggu/San-Francisco-Pro-Fonts/archive/refs/heads/master.tar.gz | tar -xz -C /tmp
+        cp /tmp/San-Francisco-Pro-Fonts-master/*.otf /usr/share/fonts/apple-fonts/ || true
+        rm -rf /tmp/San-Francisco-Pro-Fonts-master
+        fc-cache -f
+
+        # Set ZSH as default shell for useradd
+        sed -i 's|SHELL=/bin/bash|SHELL=/bin/zsh|g' /etc/default/useradd
+
+  # 4. Essential Flatpaks
   - type: default-flatpaks
-    configurations:
-      - notify: true # Send notification after install/uninstall is finished (true/false)
-        scope: system
-        # If no repo information is specified, Flathub will be used by default
-        install: # system flatpaks we want all users to have and not remove
-          - org.mozilla.firefox
-          - org.gnome.Loupe
-      - scope: user # Also add Flathub user repo, but no user packages
-
-  - type: signing # this sets up the proper policy & signing files for signed images to work fully
+    notify: true
+    system:
+      install:
+        - org.mozilla.firefox
